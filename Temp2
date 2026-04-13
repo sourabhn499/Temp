@@ -1,0 +1,97 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <curl/curl.h>
+#include "json.hpp" // https://github.com/nlohmann/json
+
+using json = nlohmann::json;
+
+// Simple Base64 encoder helper
+std::string base64_encode(const std::vector<unsigned char>& data) {
+    static const char sEncodingTable[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    int val = 0, valb = -6;
+    for (unsigned char c : data) {
+        val = (val << 8) + c;
+        valb += 8;
+        while (valb >= 0) {
+            out.push_back(sEncodingTable[(val >> valb) & 0x3F]);
+            valb -= 6;
+        }
+    }
+    if (valb > -6) out.push_back(sEncodingTable[((val << 8) >> (valb + 8)) & 0x3F]);
+    while (out.size() % 4) out.push_back('=');
+    return out;
+}
+
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+    userp->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+void callGeminiWithFile(const std::string& apiKey, const std::string& filePath, const std::string& mimeType, const std::string& prompt) {
+    // 1. Read file into bytes
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file) {
+        std::cerr << "Could not open file: " << filePath << std::endl;
+        return;
+    }
+    std::vector<unsigned char> fileData((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    std::string encodedFile = base64_encode(fileData);
+
+    // 2. Prepare JSON payload
+    json payload = {
+        {"contents", {{
+            {"parts", {
+                {{"text", prompt}},
+                {{"inline_data", {
+                    {"mime_type", mimeType},
+                    {"data", encodedFile}
+                }}}
+            }}
+        }}}
+    };
+
+    // 3. Setup CURL
+    CURL* curl = curl_easy_init();
+    std::string readBuffer;
+    std::string url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey;
+
+    if(curl) {
+        struct curl_slist* headers = NULL;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+
+        std::string requestData = payload.dump();
+
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, requestData.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+
+        CURLcode res = curl_easy_perform(curl);
+        
+        if(res == CURLE_OK) {
+            auto responseJson = json::parse(readBuffer);
+            if (responseJson.contains("candidates")) {
+                std::cout << "Response: " << responseJson["candidates"][0]["content"]["parts"][0]["text"] << std::endl;
+            } else {
+                std::cout << "Full Error/Response: " << responseJson.dump(4) << std::endl;
+            }
+        } else {
+            std::cerr << "CURL Error: " << curl_easy_strerror(res) << std::endl;
+        }
+
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(headers);
+    }
+}
+
+int main() {
+    std::string myApiKey = "YOUR_API_KEY_HERE";
+    // Example: Sending an image
+    callGeminiWithFile(myApiKey, "input_image.jpg", "image/jpeg", "What is described in this image?");
+    return 0;
+}
+
