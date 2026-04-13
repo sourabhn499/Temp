@@ -1,0 +1,71 @@
+#include <iostream>
+#include <string>
+#include <curl/curl.h>
+#include "json.hpp" // Ensure nlohmann/json is in your include path
+
+using json = nlohmann::json;
+
+// Callback function to handle the response data from CURL
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+    userp->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+int main() {
+    CURL* curl;
+    CURLcode res;
+    std::string readBuffer;
+
+    // Replace with your actual Gemini API Key
+    std::string apiKey = "YOUR_GEMINI_API_KEY";
+    std::string url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey;
+
+    curl = curl_easy_init();
+    if(curl) {
+        // Construct the JSON payload
+        json payload = {
+            {"contents", {{
+                {"parts", {{
+                    {"text", "Explain the concept of recursion in one sentence."}
+                }}}
+            }}}
+        };
+        std::string requestData = payload.dump();
+
+        // Set headers
+        struct curl_slist* headers = NULL;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+
+        // CURL Options
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, requestData.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+
+        // Perform the request
+        res = curl_easy_perform(curl);
+
+        if(res != CURLE_OK) {
+            std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+        } else {
+            // Parse and print the response
+            try {
+                auto responseJson = json::parse(readBuffer);
+                // Extracting the text from the specific Gemini response structure
+                std::string aiResponse = responseJson["candidates"][0]["content"]["parts"][0]["text"];
+                std::cout << "Gemini Response:\n" << aiResponse << std::endl;
+            } catch (const std::exception& e) {
+                std::cerr << "Error parsing JSON: " << e.what() << std::endl;
+                std::cout << "Raw Response: " << readBuffer << std::endl;
+            }
+        }
+
+        // Cleanup
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(headers);
+    }
+
+    return 0;
+}
+
