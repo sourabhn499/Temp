@@ -1,0 +1,84 @@
+
+#include <iostream>
+#include <string>
+#include <curl/curl.h>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
+
+// Callback to handle the string response from the server
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+    userp->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+void call_gemini(const std::string& api_key, const std::string& prompt) {
+    CURL* curl;
+    CURLcode res;
+    std::string readBuffer;
+
+    curl = curl_easy_init();
+    if (curl) {
+        // Updated to the gemini-1.5-flash-latest model as per your curl test
+        std::string url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent";
+
+        // Construct JSON payload
+        json payload = {
+            {"contents", {
+                {{"parts", {
+                    {{"text", prompt}}
+                }}}
+            }}
+        };
+        std::string json_str = payload.dump();
+
+        // Set Headers (matching your successful curl command)
+        struct curl_slist* headers = NULL;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        std::string auth_header = "X-goog-api-key: " + api_key;
+        headers = curl_slist_append(headers, auth_header.c_str());
+
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_str.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+
+        // Perform the request
+        res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK) {
+            std::cerr << "CURL Error: " << curl_easy_strerror(res) << std::endl;
+        } else {
+            try {
+                auto response_json = json::parse(readBuffer);
+                
+                // Check for API errors first
+                if (response_json.contains("error")) {
+                    std::cout << "API Error: " << response_json["error"]["message"] << std::endl;
+                } else {
+                    // Extract text: candidates[0] -> content -> parts[0] -> text
+                    std::string ai_text = response_json["candidates"][0]["content"]["parts"][0]["text"];
+                    std::cout << "\nGemini Response:\n" << ai_text << std::endl;
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "Parsing Error: " << e.what() << std::endl;
+                std::cerr << "Raw Output: " << readBuffer << std::endl;
+            }
+        }
+
+        // Cleanup
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+    }
+}
+
+int main() {
+    // DO NOT share this key once you put it here!
+    std::string my_key = "AIzaSyDLPPMNWGHf4_FtVb1P6MWRXDVFRZhQc6Y"; 
+    std::string user_prompt = "Explain how girls works in a few words";
+
+    call_gemini(my_key, user_prompt);
+
+    return 0;
+}
