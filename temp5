@@ -1,0 +1,93 @@
+# from google import genai
+
+# # Initialize the client
+# client = genai.Client(api_key="AIzaSyASFNmYkMBsbjXDB8uMECFCc_Zl-kBaViU")
+
+# # Use the specific preview model name currently available
+# response = client.models.generate_content(
+#     model="gemini-3-flash-preview", 
+#     contents="suggest me 10 best webseries"
+# )
+
+# print(response.text)
+
+#------------------------------------------------------------------------
+
+
+import time
+from google import genai
+
+# Initialize the client with your valid API key
+client = genai.Client(api_key="AIzaSyASFNmYkMBsbjXDB8uMECFCc_Zl-kBaViU")
+
+# 1. Upload the file
+# This supports PDF, images, audio, video, and text files.
+print("Uploading file...")
+myfile = client.files.upload(file=r"D:\tempo\document.pdf")
+
+# 2. Wait for processing (especially important for Video/Large PDFs)
+while myfile.state.name == "PROCESSING":
+    print("Processing file...")
+    time.sleep(2)
+    myfile = client.files.get(name=myfile.name)
+
+if myfile.state.name == "FAILED":
+    raise ValueError(f"File processing failed: {myfile.state.name}")
+
+# 3. Ask a question about the file
+print("Asking question...")
+response = client.models.generate_content(
+    model="gemini-3-flash-preview",
+    contents=[
+        myfile,
+        ""
+    ]
+)
+
+print("\n--- Model Response ---")
+print(response.text)
+
+
+
+
+
+# ----------------------------------------------------------------------
+
+
+# import time
+# import os
+# from google import genai
+
+# # 1. Initialize Client
+# client = genai.Client(api_key="AIzaSyASFNmYkMBsbjXDB8uMECFCc_Zl-kBaViU")
+
+# # 2. Upload the file ONCE
+# print("Uploading file...")
+# myfile = client.files.upload(file=r"D:\tempo\document.pdf")
+
+# # 3. Wait for the file to be ready
+# while myfile.state.name == "PROCESSING":
+#     print("Processing file...")
+#     time.sleep(2)
+#     myfile = client.files.get(name=myfile.name)
+
+# if myfile.state.name == "FAILED":
+#     raise ValueError("File failed to process.")
+
+# print("\n--- File is ready! Type 'exit' to quit. ---")
+
+# # 4. Loop for questions
+# while True:
+#     user_query = input("\nYour Question: ")
+    
+#     if user_query.lower() in ['exit', 'quit', 'q']:
+#         print("Goodbye!")
+#         break
+
+#     # We pass the SAME 'myfile' object every time
+#     response = client.models.generate_content(
+#         model="gemini-3-flash-preview",
+#         contents=[myfile, user_query]
+#     )
+
+#     print(f"\nGemini: {response.text}")
