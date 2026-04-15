@@ -97,7 +97,7 @@ print(response.text)
 
 curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent" \
   -H 'Content-Type: application/json' \
-  -H 'X-goog-api-key: AIzaSyDpdN1TLopiyy1JjmUkk_t5QKn0JDTByYI' \
+  -H 'X-goog-api-key: AIzaSyDpdN1TLopiyy1JjmUkk_t5QKn0JDTBy' \
   -X POST \
   -d '{
     "contents": [
