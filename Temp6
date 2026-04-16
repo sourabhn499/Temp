@@ -1,0 +1,135 @@
+cmake_minimum_required(VERSION 3.10)
+project(GeminiPDFClient)
+
+set(CMAKE_CXX_STANDARD 17)
+
+# Find Dependencies
+find_package(CURL REQUIRED)
+find_path(JSON_INCLUDE_DIR nlohmann/json.hpp)
+
+add_executable(GeminiPDF main.cpp)
+
+# Link CURL and include JSON
+target_link_libraries(GeminiPDF PRIVATE CURL::libcurl)
+target_include_directories(GeminiPDF PRIVATE ${JSON_INCLUDE_DIR})
+
+
+
+
+
+
+
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <curl/curl.h>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
+
+// --- Helper: Base64 Encoding ---
+static const std::string base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+std::string base64_encode(const std::vector<unsigned char>& data) {
+    std::string ret;
+    int i = 0, j = 0;
+    unsigned char char_array_3[3], char_array_4[4];
+
+    for (auto byte : data) {
+        char_array_3[i++] = byte;
+        if (i == 3) {
+            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+            char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+            char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+            char_array_4[3] = char_array_3[2] & 0x3f;
+            for(i = 0; i < 4; i++) ret += base64_chars[char_array_4[i]];
+            i = 0;
+        }
+    }
+    if (i) {
+        for(j = i; j < 3; j++) char_array_3[j] = '\0';
+        char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+        char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+        char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+        for (j = 0; j < i + 1; j++) ret += base64_chars[char_array_4[j]];
+        while((i++ < 3)) ret += '=';
+    }
+    return ret;
+}
+
+// --- CURL Callback to handle response ---
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+    ((std::string*)userp)->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+void askGemini(const std::string& apiKey, const std::string& prompt, const std::string& base64Pdf) {
+    CURL* curl = curl_easy_init();
+    if(!curl) return;
+
+    std::string url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey;
+    std::string readBuffer;
+
+    // Create JSON Payload
+    json payload = {
+        {"contents", {{
+            {"parts", {
+                {{"text", prompt}},
+                {{"inline_data", {{"mime_type", "application/pdf"}, {"data", base64Pdf}}}}
+            }}
+        }}}
+    };
+
+    std::string jsonStr = payload.dump();
+
+    struct curl_slist* headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonStr.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+
+    CURLcode res = curl_easy_perform(curl);
+    if(res == CURLE_OK) {
+        auto resJson = json::parse(readBuffer);
+        // Extracting text from Gemini response structure
+        std::cout << "Gemini: " << resJson["candidates"][0]["content"]["parts"][0]["text"] << std::endl;
+    } else {
+        std::cerr << "CURL Error: " << curl_easy_strerror(res) << std::endl;
+    }
+
+    curl_easy_cleanup(curl);
+}
+
+int main() {
+    std::string apiKey = "YOUR_GEMINI_API_KEY";
+    std::string filePath = "test.pdf";
+
+    // 1. Read PDF as Binary
+    std::ifstream file(filePath, std::ios::binary);
+    if(!file) {
+        std::cerr << "Could not open file!" << std::endl;
+        return 1;
+    }
+    std::vector<unsigned char> buffer(std::istreambuf_iterator<char>(file), {});
+
+    // 2. Encode to Base64
+    std::string base64Pdf = base64_encode(buffer);
+
+    // 3. Simple Interaction Loop
+    std::string userPrompt;
+    std::cout << "Successfully loaded PDF. Ask a question (or type 'exit'): " << std::endl;
+    
+    while(true) {
+        std::cout << "> ";
+        std::getline(std::cin, userPrompt);
+        if(userPrompt == "exit") break;
+
+        askGemini(apiKey, userPrompt, base64Pdf);
+    }
+
+    return 0;
+}
