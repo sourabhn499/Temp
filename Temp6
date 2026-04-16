@@ -133,3 +133,45 @@ int main() {
 
     return 0;
 }
+
+
+
+
+
+
+
+
+# Copy test.pdf to the build directory automatically
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/test.pdf" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+
+
+
+
+
+
+#include <filesystem> // Add this include at the top
+namespace fs = std::filesystem;
+
+int main() {
+    std::string apiKey = "YOUR_GEMINI_API_KEY";
+    std::string filePath = "test.pdf";
+
+    // DEBUG: Print where the program is actually looking
+    std::cout << "Current Working Directory: " << fs::current_path() << std::endl;
+    std::cout << "Looking for file at: " << fs::absolute(filePath) << std::endl;
+
+    if (!fs::exists(filePath)) {
+        std::cerr << "Error: File does not exist at the path above!" << std::endl;
+        return 1;
+    }
+
+    // 1. Read PDF as Binary
+    std::ifstream file(filePath, std::ios::binary);
+    if(!file.is_open()) {
+        std::cerr << "Error: File exists but could not be opened (Check permissions)!" << std::endl;
+        return 1;
+    }
+    
+    // ... rest of your code ...
+}
+
