@@ -1,149 +1,137 @@
 #include <iostream>
-#include <fstream>
-#include <string>
 #include <vector>
-#include <curl/curl.h>
-#include <nlohmann/json.hpp>
+#include <deque>
+#include <tuple>
 
-using json = nlohmann::json;
 using namespace std;
 
-// ---------------- Base64 ----------------
-static const string base64_chars =
-"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+// दिशा (Directions):
+// 0 → Right, 1 → Down, 2 → Left, 3 → Up
+int dr[] = {0, 1, 0, -1};
+int dc[] = {1, 0, -1, 0};
 
-string base64_encode(const vector<unsigned char>& data) {
-    string ret;
-    int i = 0;
-    unsigned char char_array_3[3], char_array_4[4];
+// State of BFS
+struct State {
+    int r, c;     // current position
+    int dir;      // current direction
+    int apple;    // next apple to eat
+};
 
-    for (auto byte : data) {
-        char_array_3[i++] = byte;
-        if (i == 3) {
-            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-            char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-            char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
-            char_array_4[3] = char_array_3[2] & 0x3f;
-            for (int j = 0; j < 4; j++) ret += base64_chars[char_array_4[j]];
-            i = 0;
+// dist[r][c][dir][apple] = minimum right turns to reach this state
+int dist[61][61][4][152];
+
+int solve() {
+    int N;
+    cin >> N;
+
+    vector<vector<int>> grid(N, vector<int>(N));
+    int max_apple = 0;
+
+    //------------------------------------------------------------
+    // Input + initialization
+    //------------------------------------------------------------
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            cin >> grid[i][j];
+
+            // Track maximum apple number
+            if (grid[i][j] > 0)
+                max_apple = max(max_apple, grid[i][j]);
+
+            // Initialize distances with large value (infinity)
+            for (int d = 0; d < 4; d++) {
+                for (int a = 0; a <= 151; a++) {
+                    dist[i][j][d][a] = 1e9;
+                }
+            }
         }
     }
 
-    if (i) {
-        for (int j = i; j < 3; j++) char_array_3[j] = '\0';
-        char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
-        char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
-        char_array_4[2] = ((char_array_3[1] & 0x0f) << 2);
-        for (int j = 0; j < i + 1; j++) ret += base64_chars[char_array_4[j]];
-        while (i++ < 3) ret += '=';
+    //------------------------------------------------------------
+    // 0-1 BFS (deque)
+    //------------------------------------------------------------
+    deque<State> dq;
+
+    // Start at (0,0), facing RIGHT (dir = 0)
+    // If starting cell has apple 1 → immediately eat it
+    int first_apple = (grid[0][0] == 1) ? 2 : 1;
+
+    dist[0][0][0][first_apple] = 0;
+    dq.push_front({0, 0, 0, first_apple});
+
+    //------------------------------------------------------------
+    // BFS loop
+    //------------------------------------------------------------
+    while (!dq.empty()) {
+        State curr = dq.front();
+        dq.pop_front();
+
+        int r = curr.r;
+        int c = curr.c;
+        int dir = curr.dir;
+        int apple = curr.apple;
+
+        int curr_cost = dist[r][c][dir][apple];
+
+        //--------------------------------------------------------
+        // Goal: all apples eaten
+        //--------------------------------------------------------
+        if (apple > max_apple) {
+            return curr_cost;
+        }
+
+        //--------------------------------------------------------
+        // 1. Move forward (cost = 0)
+        //--------------------------------------------------------
+        int nr = r + dr[dir];
+        int nc = c + dc[dir];
+
+        if (nr >= 0 && nr < N && nc >= 0 && nc < N && grid[nr][nc] != -1) {
+            
+            int next_apple = apple;
+
+            // If next required apple found → eat it
+            if (grid[nr][nc] == apple) {
+                next_apple++;
+            }
+
+            // Relax state
+            if (dist[nr][nc][dir][next_apple] > curr_cost) {
+                dist[nr][nc][dir][next_apple] = curr_cost;
+
+                // cost = 0 → push front
+                dq.push_front({nr, nc, dir, next_apple});
+            }
+        }
+
+        //--------------------------------------------------------
+        // 2. Turn right (cost = 1)
+        //--------------------------------------------------------
+        int ndir = (dir + 1) % 4;
+
+        if (dist[r][c][ndir][apple] > curr_cost + 1) {
+            dist[r][c][ndir][apple] = curr_cost + 1;
+
+            // cost = 1 → push back
+            dq.push_back({r, c, ndir, apple});
+        }
     }
 
-    return ret;
+    //------------------------------------------------------------
+    // If not reachable
+    //------------------------------------------------------------
+    return -1;
 }
 
-// ---------------- CURL Callback ----------------
-size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-    ((string*)userp)->append((char*)contents, size * nmemb);
-    return size * nmemb;
-}
-
-// ---------------- API Call ----------------
-string callGemini(const string& apiKey, json& contents) {
-    CURL* curl = curl_easy_init();
-    string readBuffer;
-
-    string url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey;
-
-    json payload;
-    payload["contents"] = contents;
-
-    string jsonStr = payload.dump();
-
-    struct curl_slist* headers = NULL;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jsonStr.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-
-    CURLcode res = curl_easy_perform(curl);
-
-    curl_easy_cleanup(curl);
-
-    if (res != CURLE_OK) {
-        return "CURL ERROR";
-    }
-
-    auto resJson = json::parse(readBuffer);
-
-    if (resJson.contains("candidates")) {
-        return resJson["candidates"][0]["content"]["parts"][0]["text"];
-    }
-
-    return "Error in response";
-}
-
-// ---------------- MAIN ----------------
+//------------------------------------------------------------
+// Main
+//------------------------------------------------------------
 int main() {
-    string apiKey = getenv("GEMINI_API_KEY");
-    string filePath = "test.pdf";
+    int T;
+    cin >> T;
 
-    // Read PDF
-    ifstream file(filePath, ios::binary);
-    vector<unsigned char> buffer((istreambuf_iterator<char>(file)), {});
-
-    string base64Pdf = base64_encode(buffer);
-
-    // Conversation history
-    json contents = json::array();
-
-    // ---- FIRST MESSAGE (PDF upload) ----
-    contents.push_back({
-        {"role", "user"},
-        {"parts", {
-            {{"text", "You are a helpful assistant. Answer questions from this PDF."}},
-            {{"inline_data", {
-                {"mime_type", "application/pdf"},
-                {"data", base64Pdf}
-            }}}
-        }}
-    });
-
-    // Initial response (optional)
-    string response = callGemini(apiKey, contents);
-    contents.push_back({
-        {"role", "model"},
-        {"parts", {{{"text", response}}}}
-    });
-
-    cout << "PDF loaded. Ask questions (type exit):\n";
-
-    // ---- LOOP ----
-    while (true) {
-        string question;
-        cout << "> ";
-        getline(cin, question);
-
-        if (question == "exit") break;
-
-        // Add user question
-        contents.push_back({
-            {"role", "user"},
-            {"parts", {{{"text", question}}}}
-        });
-
-        // Call API
-        string answer = callGemini(apiKey, contents);
-
-        cout << "Gemini: " << answer << endl;
-
-        // Save response in history
-        contents.push_back({
-            {"role", "model"},
-            {"parts", {{{"text", answer}}}}
-        });
+    for (int t = 1; t <= T; t++) {
+        cout << "#" << t << " " << solve() << endl;
     }
 
     return 0;
