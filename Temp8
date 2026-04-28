@@ -1,0 +1,100 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ll = long long;
+
+const int MAXN = 100;
+ll distArr[MAXN]; // stores Manhattan distances
+
+//------------------------------------------------------------
+// Function to find minimum k such that:
+// k*(k+1)/2 >= maxDist
+// (using binary search to avoid floating point errors)
+//------------------------------------------------------------
+ll findMinTurns(ll maxDist) {
+    ll l = 0, r = 2e9; // large enough upper bound
+
+    while (l < r) {
+        ll mid = (l + r) / 2;
+
+        // sum = mid*(mid+1)/2
+        if (mid * (mid + 1) / 2 >= maxDist)
+            r = mid;
+        else
+            l = mid + 1;
+    }
+
+    return l;
+}
+
+//------------------------------------------------------------
+// Main solve function
+//------------------------------------------------------------
+void solve() {
+    ll n;
+    cin >> n;
+
+    ll p, q;
+    cin >> p >> q; // target position
+
+    // Step 1: Compute Manhattan distances
+    for (int i = 0; i < n; i++) {
+        ll x, y;
+        cin >> x >> y;
+
+        distArr[i] = abs(p - x) + abs(q - y);
+    }
+
+    // Step 2: Find maximum distance
+    ll maxDist = *max_element(distArr, distArr + n);
+
+    // Step 3: Find minimum turns needed
+    ll turns = findMinTurns(maxDist);
+
+    // Step 4: Compute total movement after 'turns'
+    ll total = turns * (turns + 1) / 2;
+
+    // Step 5: Convert all distances into parity form
+    // parity = (total - distance) % 2
+    int parity = (total - distArr[0]) % 2;
+
+    for (int i = 1; i < n; i++) {
+        if ((total - distArr[i]) % 2 != parity) {
+            // If any parity differs → impossible
+            cout << -1 << "\n";
+            return;
+        }
+    }
+
+    // Step 6: If parity is already even → done
+    if (parity == 0) {
+        cout << turns << "\n";
+        return;
+    }
+
+    // Step 7: If parity is odd → fix by adding turns
+    // Adding one more turn adds (turns+1) distance
+    // If (turns+1) is odd → parity flips
+    if ((turns + 1) % 2 == 1) {
+        cout << turns + 1 << "\n";
+    } else {
+        cout << turns + 2 << "\n";
+    }
+}
+
+//------------------------------------------------------------
+// Driver code
+//------------------------------------------------------------
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(NULL);
+
+    int t;
+    cin >> t;
+
+    while (t--) {
+        solve();
+    }
+
+    return 0;
+}
